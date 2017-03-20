@@ -37,10 +37,15 @@ SLS <- function(y, X, subset_size, g_deriv2, g_deriv3,
 
 
 # glmnet helper function
-glmnet_coef <- function(...) {
+cv.glmnet_coef <- function(...) {
   require(glmnet)
   glmnet_fit <- cv.glmnet(...)
   return(coef(glmnet_fit, s = "lambda.min"))
+}
+glmnet_coef <- function(...) {
+  require(glmnet)
+  glmnet_fit <- glmnet(...)
+  return(coef(glmnet_fit, s = min(glmnet_fit$lambda)))
 }
 
 
@@ -56,7 +61,7 @@ beta_SLS <- SLS(my_data$resp_var, X, g_deriv2 = exp, g_deriv3 = exp, subset_size
 beta_GLM <- glm(resp_var ~ . - 1, data = my_data, family = poisson())$coefficients
 beta_GLMNET <- glmnet_coef(x = as.matrix(X), y = as.matrix(my_data$resp_var),
                            family = "poisson", intercept = FALSE)
-beta_GLMNET <- as.matrix(beta_GLMNET[-1])  #dropping intercept
+beta_GLMNET <- beta_GLMNET[-1]  #dropping intercept
 data.frame(SLS = beta_SLS, GLM = beta_GLM, GLMNET = beta_GLMNET, true = true_beta)
 
 
@@ -73,20 +78,28 @@ system.time(
   beta_GLM <- glm(resp_var ~ . - 1, data = my_data, family = poisson())$coefficients
 )
 system.time(
-  beta_GLMNET <- as.matrix(
-    glmnet_coef(x = as.matrix(X), y = as.matrix(my_data$resp_var),
-                family = "poisson", intercept = FALSE))[-1]
+  beta_GLMNET <- glmnet_coef(x = as.matrix(X), y = my_data$resp_var,
+                             family = "poisson", intercept = FALSE)[-1]
+)
+system.time(
+  beta_GLMNET_cv <- cv.glmnet_coef(
+    x = as.matrix(X), y = my_data$resp_var,
+    family = "poisson", intercept = FALSE
+  )[-1]
 )
 
 
 # Accuracy comparison
-round(data.frame(SLS = beta_SLS, GLM = beta_GLM, GLMNET = beta_GLMNET,
+round(data.frame(SLS = beta_SLS, GLM = beta_GLM, 
+                 GLMNET_cv = beta_GLMNET_cv, GLMNET = beta_GLMNET,
                  true = true_beta), 4)
 SLS_rel <- mean(abs((beta_SLS - true_beta) / true_beta))
 GLM_rel <- mean(abs((beta_GLM - true_beta) / true_beta))
+GLMNET_cv_rel <- mean(abs((beta_GLMNET_cv - true_beta) / true_beta))
 GLMNET_rel <- mean(abs((beta_GLMNET - true_beta) / true_beta))
-cat("SLS relative error:", SLS_rel,
-    "GLM relative error:", GLM_rel,
+cat(" SLS relative error:", SLS_rel,
+    "GLM relative error:", GLM_rel, "\n",
+    "GLMNET_cv relative error:", GLMNET_cv_rel,
     "GLMNET relative error:", GLMNET_rel, "\n")
 
 
