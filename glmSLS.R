@@ -14,7 +14,7 @@ SLS <- function(y, X, subset_size, g_deriv2, g_deriv3,
   Xs <- X[subset_index, ]
   beta_ols <- subset_size / n * solve(t(Xs) %*% Xs, t(X) %*% y)
   y_ols <- X %*% beta_ols
-
+  
   #Recursive root finding
   c_old <- Inf
   c_new <- c_init
@@ -36,16 +36,28 @@ SLS <- function(y, X, subset_size, g_deriv2, g_deriv3,
 }
 
 
+# glmnet helper function
+glmnet_coef <- function(...) {
+  require(glmnet)
+  glmnet_fit <- cv.glmnet(...)
+  return(coef(glmnet_fit, s = "lambda.min"))
+}
+
+
 # Minimal example - Poisson regression
-#devtools::install_github("https://github.com/kcf-jackson/glmSimData")
+#devtools::install_github("kcf-jackson/glmSimData")
 library(glmSimData)
+library(glmnet)
 X <- generate_independent_covariates(10000, 10)
 true_beta <- rnorm(ncol(X), sd = 0.5)
 my_data <- generate_response(X, beta = true_beta, family = poisson())
 
 beta_SLS <- SLS(my_data$resp_var, X, g_deriv2 = exp, g_deriv3 = exp, subset_size = 3000)
 beta_GLM <- glm(resp_var ~ . - 1, data = my_data, family = poisson())$coefficients
-data.frame(SLS = beta_SLS, GLM = beta_GLM, true = true_beta)
+beta_GLMNET <- glmnet_coef(x = as.matrix(X), y = as.matrix(my_data$resp_var),
+                           family = "poisson", intercept = FALSE)
+beta_GLMNET <- as.matrix(beta_GLMNET[-1])  #dropping intercept
+data.frame(SLS = beta_SLS, GLM = beta_GLM, GLMNET = beta_GLMNET, true = true_beta)
 
 
 # Speed comparison
@@ -60,13 +72,22 @@ system.time(
 system.time(
   beta_GLM <- glm(resp_var ~ . - 1, data = my_data, family = poisson())$coefficients
 )
+system.time(
+  beta_GLMNET <- as.matrix(
+    glmnet_coef(x = as.matrix(X), y = as.matrix(my_data$resp_var),
+                family = "poisson", intercept = FALSE))[-1]
+)
 
 
 # Accuracy comparison
-round(data.frame(SLS = beta_SLS, GLM = beta_GLM, true = true_beta), 4)
+round(data.frame(SLS = beta_SLS, GLM = beta_GLM, GLMNET = beta_GLMNET,
+                 true = true_beta), 4)
 SLS_rel <- mean(abs((beta_SLS - true_beta) / true_beta))
 GLM_rel <- mean(abs((beta_GLM - true_beta) / true_beta))
-cat("SLS relative error:", SLS_rel, " GLM relative error:", GLM_rel, "\n")
+GLMNET_rel <- mean(abs((beta_GLMNET - true_beta) / true_beta))
+cat("SLS relative error:", SLS_rel,
+    "GLM relative error:", GLM_rel,
+    "GLMNET relative error:", GLMNET_rel, "\n")
 
 
 # Notes / References:
